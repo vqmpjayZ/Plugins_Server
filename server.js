@@ -1,45 +1,98 @@
 const express = require('express');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
+
 const app = express();
-const port = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000;
 
-const plugins = {};
+app.use(cors());
+app.use(bodyParser.json());
 
-app.post('/api/plugin', express.json(), (req, res) => {
-  const { name, author, code, icon, description, sections, bypasses } = req.body;
-  
-  if (!name || !author || !code) {
-    return res.status(400).json({ error: 'Missing required fields' });
+const DATA_FILE = path.join(__dirname, 'plugins.json');
+
+if (!fs.existsSync(DATA_FILE)) {
+  fs.writeFileSync(DATA_FILE, JSON.stringify({}));
+}
+
+function loadPlugins() {
+  try {
+    const data = fs.readFileSync(DATA_FILE, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    console.error('Error loading plugins:', error);
+    return {};
   }
+}
+
+function savePlugins(plugins) {
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(plugins, null, 2));
+    return true;
+  } catch (error) {
+    console.error('Error saving plugins:', error);
+    return false;
+  }
+}
+
+app.get('/plugin/:code', (req, res) => {
+  const { code } = req.params;
+  const plugins = loadPlugins();
   
-  plugins[code.toUpperCase()] = {
-    name,
-    author,
-    code: code.toUpperCase(),
-    icon: icon || 11432864817,
-    description: description || 'A custom bypass plugin',
-    sections: sections || ['Common', 'Insults', 'Other'],
-    bypasses: bypasses || []
-  };
-  
-  res.json({ success: true, code: code.toUpperCase() });
+  if (plugins[code]) {
+    res.json(plugins[code]);
+  } else {
+    res.status(404).json({ error: 'Plugin not found' });
+  }
 });
 
-app.get('/api/plugin', (req, res) => {
-  const { code } = req.query;
+app.post('/plugin/create', (req, res) => {
+  const pluginData = req.body;
+  const plugins = loadPlugins();
   
-  if (!code) {
-    return res.status(400).json({ error: 'Missing code parameter' });
+  if (!pluginData.name || !pluginData.code || !pluginData.bypasses || pluginData.bypasses.length === 0) {
+    return res.status(400).json({ 
+      success: false,
+      error: 'Missing required fields' 
+    });
   }
-  
-  const plugin = plugins[code.toUpperCase()];
-  
-  if (!plugin) {
-    return res.status(404).json({ error: 'Plugin not found' });
+
+  if (plugins[pluginData.code]) {
+    let newCode = pluginData.code;
+    while (plugins[newCode]) {
+      if (newCode.length < 6) {
+        newCode = generateRandomCode(newCode.length + 1);
+      } else {
+        newCode = generateRandomCode(6);
+      }
+    }
+    pluginData.code = newCode;
   }
-  
-  res.json(plugin);
+
+  plugins[pluginData.code] = pluginData;
+  if (savePlugins(plugins)) {
+    res.json({ 
+      success: true,
+      code: pluginData.code 
+    });
+  } else {
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to save plugin' 
+    });
+  }
 });
 
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+function generateRandomCode(length) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code = '';
+  for (let i = 0; i < length; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
